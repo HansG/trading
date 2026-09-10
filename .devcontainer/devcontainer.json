@@ -1,0 +1,32 @@
+{
+  "name": "Scala 3 Development",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "initializeCommand": "find . -type d -name .scala-build -prune -exec rm -rf {} + 2>/dev/null || true; mkdir -p .metals .bsp target project/target && chmod -R u+rwX . 2>/dev/null || true",
+  "updateRemoteUserUID": true,
+  "remoteUser": "vscode",
+  "mounts": [
+    "source=${localEnv:HOME}/.ssh,target=/tmp/host-ssh,type=bind,readonly",
+    "source=${localEnv:HOME}/.codex,target=/tmp/host-codex,type=bind,readonly"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "openai.chatgpt",
+        "scalameta.metals",
+        "scala-lang.scala"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "metals.defaultBspToBuildTool": true,
+        "metals.serverProperties": [
+          "-Xmx2G"
+        ]
+      }
+    }
+  },
+  "postStartCommand": "bash .devcontainer/post-start.sh",
+  "postCreateCommand": "cd /workspaces/trading && START_METALS_MCP=0 bash .devcontainer/post-start.sh && node --version && npm --version && codex --version && scala-cli --version && scala3-compiler -version && sbt -Dsbt.batch=true update sbtVersion && bash .devcontainer/post-start.sh"
+}
