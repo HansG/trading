@@ -6,17 +6,26 @@
   },
   "initializeCommand": "find . -type d -name .scala-build -prune -exec rm -rf {} + 2>/dev/null || true; mkdir -p .metals .bsp target project/target && chmod -R u+rwX . 2>/dev/null || true",
   "updateRemoteUserUID": true,
-  "remoteUser": "vscode",
+  // "remoteUser": "vscode",
+  "remoteUser": "root",
   "mounts": [
     "source=${localEnv:HOME}/.ssh,target=/tmp/host-ssh,type=bind,readonly",
-    "source=${localEnv:HOME}/.codex,target=/tmp/host-codex,type=bind,readonly"
+    "source=${localEnv:HOME}/.codex,target=/tmp/host-codex,type=bind,readonly",
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind",
+    "source=vscode-server,target=/root/.vscode-server,type=volume"
+    //  remote VS Code server reuses the extension metadata/cache of the host, but linux version etc.!!
+    // "source=${localEnv:HOME}/.vscode-server,target=/root/.vscode-server,type=bind"
   ],
   "customizations": {
     "vscode": {
       "extensions": [
         "openai.chatgpt",
         "scalameta.metals",
-        "scala-lang.scala"
+        "scala-lang.scala",
+        // Cline: AI coding assistant
+        "saoudrizwan.claude-dev",
+        // Docker: manage containers, images, and compose files
+        "ms-azuretools.vscode-docker"
       ],
       "settings": {
         "editor.formatOnSave": true,
