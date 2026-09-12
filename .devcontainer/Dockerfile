@@ -1,6 +1,7 @@
 FROM eclipse-temurin:26-jdk-noble
 
-ARG USERNAME=vscode
+ARG USERNAME=root
+ARG USERHOME=/root
 ARG NODE_MAJOR=26
 ARG JDK_SOURCES_URL=https://github.com/adoptium/temurin26-binaries/releases/download/jdk-26%2B35/OpenJDK26U-jdk-sources_26_35.tar.gz
 ARG JDK_SOURCES_SHA256=f2efe308f37809127c96eb73ffba2d2484013aac18777d09079cea39091f0d08
@@ -15,7 +16,6 @@ RUN apt-get update \
       gnupg \
       gzip \
       openssh-client \
-      sudo \
     && rm -rf /var/lib/apt/lists/*
 
 # Node.js is installed from NodeSource so Codex can be installed with npm.
@@ -29,12 +29,8 @@ RUN install -d -m 0755 /etc/apt/keyrings \
     && npm install -g @openai/codex \
     && rm -rf /var/lib/apt/lists/*
 
-# The devcontainer runs as a non-root sudo user, matching VS Code defaults.
-RUN useradd --create-home --shell /bin/bash "${USERNAME}" \
-    && echo "${USERNAME} ALL=(ALL) NOPASSWD:ALL" > "/etc/sudoers.d/${USERNAME}" \
-    && chmod 0440 "/etc/sudoers.d/${USERNAME}" \
-    && mkdir -p "/home/${USERNAME}/.sbt" "/home/${USERNAME}/.cache/coursier" \
-    && chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.sbt" "/home/${USERNAME}/.cache"
+# The devcontainer runs as root, matching VS Code defaults.
+RUN mkdir -p "${USERHOME}/.sbt" "${USERHOME}/.cache/coursier" 
 
 # Add JDK source files for editor navigation.
 RUN set -eux; \
@@ -52,14 +48,23 @@ RUN set -eux; \
     rm -rf /tmp/jdk-sources /tmp/jdk-srczip /tmp/jdk-sources.tar.gz
 
 # Install Coursier, then use it for Scala tools and an sbt wrapper.
+#
+# Option B (active): native GraalVM binary — no JVM bootstrap involved, so it is
+# immune to the AbstractMethodError caused by Cats binary incompatibility when the
+# Coursier bootstrap JAR runs on Java 26.
+#
+# Option A (reference, JVM bootstrap, pinned version):
+#   ARG CS_VERSION=v2.1.25
+#   curl -fsSL "https://github.com/coursier/coursier/releases/download/${CS_VERSION}/coursier" \
+#     -o /usr/local/bin/cs
+ARG CS_VERSION=v2.1.25
 RUN set -eux; \
-    curl -fsSL "https://github.com/coursier/coursier/releases/latest/download/coursier" \
-      -o /usr/local/bin/cs; \
+    curl -fsSL "https://github.com/coursier/coursier/releases/download/${CS_VERSION}/cs-x86_64-pc-linux.gz" \
+      | gunzip > /usr/local/bin/cs; \
     chmod +x /usr/local/bin/cs; \
-    COURSIER_CACHE="/home/${USERNAME}/.cache/coursier" cs install scala3-compiler scala-cli metals-mcp --install-dir /usr/local/bin; \
-    printf '%s\n' '#!/usr/bin/env sh' 'export COURSIER_CACHE="${COURSIER_CACHE:-/home/vscode/.cache/coursier}"' 'exec /usr/local/bin/cs launch sbt -- "$@"' > /usr/local/bin/sbt; \
-    chmod +x /usr/local/bin/sbt; \
-    chown -R "${USERNAME}:${USERNAME}" "/home/${USERNAME}/.cache" || true
+    COURSIER_CACHE="${USERHOME}/.cache/coursier" cs install scala3-compiler scala-cli metals-mcp --install-dir /usr/local/bin; \
+    printf '%s\n' '#!/usr/bin/env sh' 'export COURSIER_CACHE="${COURSIER_CACHE:-${USERHOME}/.cache/coursier}"' 'exec /usr/local/bin/cs launch sbt -- "$@"' > /usr/local/bin/sbt; \
+    chmod +x /usr/local/bin/sbt
 
 USER ${USERNAME}
 
@@ -67,5 +72,5 @@ USER ${USERNAME}
 RUN metals-mcp --version
 
 # Warm the most expensive sbt downloads used by the template project.
-RUN COURSIER_CACHE="/home/${USERNAME}/.cache/coursier" \
+RUN COURSIER_CACHE="${USERHOME}/.cache/coursier" \
     cs fetch org.scala-sbt:sbt-launch:1.12.11 io.get-coursier.sbt:sbt-runner:0.2.0 >/dev/null
