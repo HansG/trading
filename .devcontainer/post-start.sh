@@ -3,9 +3,30 @@ set -euo pipefail
 
 # Configuration
 WORKSPACE="${WORKSPACE:-/workspaces/trading}"
-DEV_USER="${DEV_USER:-vscode}"
-DEV_GROUP="${DEV_GROUP:-$DEV_USER}"
-DEV_HOME="${DEV_HOME:-/home/$DEV_USER}"
+
+# The devcontainer runs as the user selected by `remoteUser` (root by default),
+# so derive the identity from the running process instead of hardcoding one that
+# may not exist in the image.
+DEV_USER="${DEV_USER:-$(id -un)}"
+DEV_GROUP="${DEV_GROUP:-$(id -gn)}"
+DEV_USER_HOME="$(getent passwd "$DEV_USER" 2>/dev/null | cut -d: -f6 || true)"
+DEV_HOME="${DEV_HOME:-${DEV_USER_HOME:-/home/$DEV_USER}}"
+
+# The base image (eclipse-temurin) ships without sudo and the container normally
+# runs as root, so escalate only when it is both necessary and possible.
+if [ "$(id -u)" -eq 0 ] || ! command -v sudo >/dev/null 2>&1; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
+as_root() {
+  if [ -n "$SUDO" ]; then
+    "$SUDO" "$@"
+  else
+    "$@"
+  fi
+}
 
 GIT_USER_NAME="${GIT_USER_NAME:-Yehor Smoliakov}"
 GIT_USER_EMAIL="${GIT_USER_EMAIL:-egorsmkv@gmail.com}"
@@ -54,15 +75,15 @@ CODEX_FILES=(
 )
 
 ensure_dir() {
-  sudo mkdir -p "$@"
+  as_root mkdir -p "$@"
 }
 
 own_path() {
-  sudo chown -R "$DEV_USER:$DEV_GROUP" "$@" 2>/dev/null || true
+  as_root chown -R "$DEV_USER:$DEV_GROUP" "$@" 2>/dev/null || true
 }
 
 chmod_path() {
-  sudo chmod -R "$@" 2>/dev/null || true
+  as_root chmod -R "$@" 2>/dev/null || true
 }
 
 copy_files_from_dir() {
@@ -75,7 +96,7 @@ copy_files_from_dir() {
 
   local file
   for file in "$@"; do
-    sudo cp "$src_dir/$file" "$dest_dir/" 2>/dev/null || true
+    as_root cp "$src_dir/$file" "$dest_dir/" 2>/dev/null || true
   done
 }
 
@@ -86,14 +107,14 @@ repair_workspace_permissions() {
     "$WORKSPACE/target" \
     "$WORKSPACE/project/target"
 
-  sudo find "$WORKSPACE" -type d -name .scala-build -prune -exec rm -rf {} + 2>/dev/null || true
+  as_root find "$WORKSPACE" -type d -name .scala-build -prune -exec rm -rf {} + 2>/dev/null || true
   own_path "$WORKSPACE"
-  sudo find "$WORKSPACE" -type d -exec chmod u+rwx {} + 2>/dev/null || true
-  sudo find "$WORKSPACE" -type f -exec chmod u+rw {} + 2>/dev/null || true
-  sudo find "$WORKSPACE" \
+  as_root find "$WORKSPACE" -type d -exec chmod u+rwx {} + 2>/dev/null || true
+  as_root find "$WORKSPACE" -type f -exec chmod u+rw {} + 2>/dev/null || true
+  as_root find "$WORKSPACE" \
     \( -type d -name .bloop -o -type d -name .scala-build -o -type d -name target \) \
     -prune -exec chown -R "$DEV_USER:$DEV_GROUP" {} + 2>/dev/null || true
-  sudo find "$WORKSPACE" \
+  as_root find "$WORKSPACE" \
     \( -type d -name .bloop -o -type d -name .scala-build -o -type d -name target \) \
     -prune -exec chmod -R u+rwX {} + 2>/dev/null || true
   own_path \
@@ -121,28 +142,30 @@ install_sbt_wrapper() {
     '#!/usr/bin/env sh' \
     "export COURSIER_CACHE=\"\${COURSIER_CACHE:-$COURSIER_CACHE}\"" \
     "exec $CS_BIN launch sbt -- \"\$@\"" \
-    | sudo tee "$BIN_DIR/sbt" >/dev/null
-  sudo chmod +x "$BIN_DIR/sbt"
+    | as_root tee "$BIN_DIR/sbt" >/dev/null
+  as_root chmod +x "$BIN_DIR/sbt"
 }
 
 install_coursier_tools() {
   ensure_dir "$COURSIER_CACHE"
-  sudo env COURSIER_CACHE="$COURSIER_CACHE" \
+  as_root env COURSIER_CACHE="$COURSIER_CACHE" \
     "$CS_BIN" install "$@" --install-dir "$BIN_DIR"
   own_path "$DEV_HOME/.cache"
 }
 
+sbt_wrapper_is_current() {
+  # The wrapper must pin this user's cache. A wrapper is stale when it embeds
+  # another user's path, or when the Dockerfile baked in a literal, never
+  # expanded ${USERHOME} that resolves to the nonexistent "/.cache/coursier".
+  grep -qF "\${COURSIER_CACHE:-$COURSIER_CACHE}" "$BIN_DIR/sbt" 2>/dev/null
+}
+
 repair_root_coursier_wrappers() {
-  if ! grep -q '/root/.cache/coursier' \
-    "$BIN_DIR/scala3" \
-    "$BIN_DIR/scala3-compiler" \
-    "$BIN_DIR/scala-cli" \
-    "$BIN_DIR/sbt" \
-    2>/dev/null; then
+  if sbt_wrapper_is_current; then
     return 0
   fi
 
-  sudo rm -f \
+  as_root rm -f \
     "$BIN_DIR/scala3" \
     "$BIN_DIR/scala3-compiler" \
     "$BIN_DIR/scala-cli" \

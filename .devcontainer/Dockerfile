@@ -63,7 +63,10 @@ RUN set -eux; \
       | gunzip > /usr/local/bin/cs; \
     chmod +x /usr/local/bin/cs; \
     COURSIER_CACHE="${USERHOME}/.cache/coursier" cs install scala3-compiler scala-cli metals-mcp --install-dir /usr/local/bin; \
-    printf '%s\n' '#!/usr/bin/env sh' 'export COURSIER_CACHE="${COURSIER_CACHE:-${USERHOME}/.cache/coursier}"' 'exec /usr/local/bin/cs launch sbt -- "$@"' > /usr/local/bin/sbt; \
+    printf '%s\n' \
+      '#!/usr/bin/env sh' \
+      "export COURSIER_CACHE=\"\${COURSIER_CACHE:-${USERHOME}/.cache/coursier}\"" \
+      'exec /usr/local/bin/cs launch sbt -- "$@"' > /usr/local/bin/sbt; \
     chmod +x /usr/local/bin/sbt
 
 USER ${USERNAME}
