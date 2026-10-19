@@ -1,0 +1,8 @@
+{
+  "servers": {
+    "trading-metals": {
+      "url": "http://localhost:46249/mcp",
+      "type": "http"
+    }
+  }
+}
